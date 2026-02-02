@@ -230,7 +230,7 @@ class DiffHighlighter(QSyntaxHighlighter):
 
 
 class DiffTextEdit(QPlainTextEdit):
-    """Custom text edit with line numbers."""
+    """Custom text edit with line numbers and column edit mode."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -239,6 +239,10 @@ class DiffTextEdit(QPlainTextEdit):
         self.updateRequest.connect(self.update_line_number_area)
         self.cursorPositionChanged.connect(self.highlight_current_line)
         self.syntax_highlighter = None
+
+        self._column_mode = False
+        self._column_selection_start = None
+        self._column_selection_end = None
 
         self.update_line_number_area_width(0)
         self.setCenterOnScroll(True)
@@ -249,6 +253,140 @@ class DiffTextEdit(QPlainTextEdit):
             self.syntax_highlighter.deleteLater()
         
         self.syntax_highlighter = SyntaxHighlighter(self.document(), language)
+
+    def set_column_mode(self, enabled: bool):
+        """Enable or disable column edit mode."""
+        self._column_mode = enabled
+        if not enabled:
+            self._column_selection_start = None
+            self._column_selection_end = None
+
+    def is_column_mode(self) -> bool:
+        """Check if column mode is enabled."""
+        return self._column_mode
+
+    def mousePressEvent(self, event):
+        """Handle mouse press event for column selection."""
+        if self._column_mode and event.button() == Qt.LeftButton:
+            cursor = self.cursorForPosition(event.pos())
+            self._column_selection_start = cursor.position()
+            self._column_selection_end = cursor.position()
+            self._update_column_selection()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """Handle mouse move event for column selection."""
+        if self._column_mode and event.buttons() == Qt.LeftButton:
+            cursor = self.cursorForPosition(event.pos())
+            self._column_selection_end = cursor.position()
+            self._update_column_selection()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release event for column selection."""
+        if self._column_mode and event.button() == Qt.LeftButton:
+            cursor = self.cursorForPosition(event.pos())
+            self._column_selection_end = cursor.position()
+            self._update_column_selection()
+        else:
+            super().mouseReleaseEvent(event)
+
+    def _update_column_selection(self):
+        """Update column selection highlighting."""
+        if self._column_selection_start is None or self._column_selection_end is None:
+            return
+
+        start_pos = min(self._column_selection_start, self._column_selection_end)
+        end_pos = max(self._column_selection_start, self._column_selection_end)
+
+        start_cursor = QTextCursor(self.document())
+        start_cursor.setPosition(start_pos)
+        end_cursor = QTextCursor(self.document())
+        end_cursor.setPosition(end_pos)
+
+        start_line = start_cursor.blockNumber()
+        end_line = end_cursor.blockNumber()
+        start_col = start_cursor.columnNumber()
+        end_col = end_cursor.columnNumber()
+
+        extra_selections = []
+        for line_num in range(min(start_line, end_line), max(start_line, end_line) + 1):
+            block = self.document().findBlockByNumber(line_num)
+            if not block.isValid():
+                continue
+
+            line_text = block.text()
+            col_start = min(start_col, end_col)
+            col_end = max(start_col, end_col)
+
+            if col_start >= len(line_text):
+                continue
+
+            col_end = min(col_end, len(line_text))
+
+            if col_start < col_end:
+                selection = QTextEdit.ExtraSelection()
+                fmt = QTextCharFormat()
+                fmt.setBackground(QColor("#add8e6"))
+                selection.format = fmt
+                selection.cursor = QTextCursor(block)
+                selection.cursor.setPosition(block.position() + col_start)
+                selection.cursor.setPosition(block.position() + col_end, QTextCursor.KeepAnchor)
+                extra_selections.append(selection)
+
+        self.setExtraSelections(extra_selections)
+
+    def insert_column_text(self, text: str):
+        """Insert text at column selection across multiple lines."""
+        if self._column_selection_start is None or self._column_selection_end is None:
+            return
+
+        start_pos = min(self._column_selection_start, self._column_selection_end)
+        end_pos = max(self._column_selection_start, self._column_selection_end)
+
+        start_cursor = QTextCursor(self.document())
+        start_cursor.setPosition(start_pos)
+        end_cursor = QTextCursor(self.document())
+        end_cursor.setPosition(end_pos)
+
+        start_line = start_cursor.blockNumber()
+        end_line = end_cursor.blockNumber()
+        start_col = start_cursor.columnNumber()
+        end_col = end_cursor.columnNumber()
+
+        col_start = min(start_col, end_col)
+        col_end = max(start_col, end_col)
+
+        new_content = []
+        lines = self.toPlainText().split('\n')
+
+        for line_num in range(min(start_line, end_line), max(start_line, end_line) + 1):
+            if line_num >= len(lines):
+                continue
+
+            line_text = lines[line_num]
+            if col_start >= len(line_text):
+                line_text = line_text.ljust(col_start) + text
+            else:
+                line_text = line_text[:col_start] + text + line_text[col_end:]
+
+            new_content.append(line_text)
+
+        if new_content:
+            self.setPlainText('\n'.join(lines[:min(start_line, end_line)] + new_content + lines[max(start_line, end_line) + 1:]))
+            self._column_selection_start = None
+            self._column_selection_end = None
+            self.setExtraSelections([])
+
+    def keyPressEvent(self, event):
+        """Handle key press event for column edit mode."""
+        if self._column_mode and not event.modifiers() & Qt.ControlModifier:
+            if event.text() and not event.modifiers() & Qt.AltModifier:
+                self.insert_column_text(event.text())
+                return
+        super().keyPressEvent(event)
 
     def disable_syntax_highlighting(self):
         """Disable syntax highlighting."""
@@ -735,6 +873,15 @@ class DiffView(QWidget):
             self.right_inline_highlighter.setEnabled(False)
             self.left_highlighter.set_diff_result(self._diff_result)
             self.right_highlighter.set_diff_result(self._diff_result)
+
+    def set_column_mode(self, enabled: bool):
+        """Enable or disable column edit mode for both editors."""
+        self.left_editor.set_column_mode(enabled)
+        self.right_editor.set_column_mode(enabled)
+
+    def is_column_mode(self) -> bool:
+        """Check if column mode is enabled."""
+        return self.left_editor.is_column_mode()
 
     def is_inline_mode(self) -> bool:
         """Check if inline mode is enabled."""

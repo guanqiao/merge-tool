@@ -205,6 +205,12 @@ class MainWindow(QMainWindow):
 
         view_menu.addSeparator()
 
+        self.action_column_edit = view_menu.addAction("Column Edit Mode")
+        self.action_column_edit.setCheckable(True)
+        self.action_column_edit.setShortcut("Alt+C")
+
+        view_menu.addSeparator()
+
         self.action_connecting_lines = view_menu.addAction("Show &Connecting Lines")
         self.action_connecting_lines.setCheckable(True)
         self.action_connecting_lines.setShortcut("Ctrl+Shift+L")
@@ -297,6 +303,7 @@ class MainWindow(QMainWindow):
             "open_hex_view": open_hex_view,
             "open_image_diff": open_image_diff,
             "inline_diff": self.action_inline_diff,
+            "column_edit": self.action_column_edit,
             "connecting_lines": self.action_connecting_lines,
             "syntax_highlighting": self.action_syntax_highlighting,
             "find": self.action_find,
@@ -327,6 +334,7 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self._actions["prev_diff"])
         toolbar.addSeparator()
         toolbar.addAction(self._actions["inline_diff"])
+        toolbar.addAction(self._actions["column_edit"])
         toolbar.addSeparator()
         toolbar.addAction(self._actions["ignore_whitespace"])
         toolbar.addAction(self._actions["ignore_case"])
@@ -356,6 +364,7 @@ class MainWindow(QMainWindow):
         self._actions["open_hex_view"].triggered.connect(self._open_hex_view)
         self._actions["open_image_diff"].triggered.connect(self._open_image_diff)
         self._actions["inline_diff"].triggered.connect(self._toggle_inline_diff)
+        self._actions["column_edit"].triggered.connect(self._toggle_column_edit)
         self._actions["connecting_lines"].triggered.connect(self._toggle_connecting_lines)
         self._actions["syntax_highlighting"].triggered.connect(self._toggle_syntax_highlighting)
         self._actions["find"].triggered.connect(self._show_find)
@@ -545,6 +554,14 @@ class MainWindow(QMainWindow):
     def _toggle_inline_diff(self, checked):
         """Toggle inline character-level diff mode."""
         self.diff_view.set_inline_mode(checked)
+
+    def _toggle_column_edit(self, checked):
+        """Toggle column edit mode."""
+        self.diff_view.set_column_mode(checked)
+        if checked:
+            self.status_bar.showMessage("Column Edit Mode enabled - Select text across multiple lines at the same column")
+        else:
+            self.status_bar.showMessage("Column Edit Mode disabled")
 
     def _toggle_connecting_lines(self, checked):
         """Toggle connecting lines."""

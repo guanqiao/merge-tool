@@ -7,6 +7,7 @@ A WinMerge-like GUI tool for comparing and merging files and directories. Built 
 ### File Comparison
 - **Side-by-side diff view**: Visual comparison of two files with synchronized scrolling
 - **Inline character-level diff**: Toggle to see character-level differences within lines
+- **Column edit mode**: Rectangular selection and editing across multiple lines at the same column position
 - **Syntax highlighting**: Support for multiple programming languages
 - **Line numbers**: Easy navigation with line number display
 - **Color-coded differences**: Green for insertions, red for deletions, yellow for replacements
@@ -70,6 +71,7 @@ python main.py --unified file1.txt file2.txt
 - **Image comparison**: Side-by-side image comparison with overlay mode and pixel-level diff highlighting
 - **Line alignment**: Automatic line alignment algorithm for improved diff accuracy
 - **Folder synchronization**: Bidirectional folder sync with conflict resolution
+- **Column edit mode**: Rectangular selection and editing for efficient multi-line text manipulation
 
 ## Requirements
 
@@ -150,6 +152,7 @@ merge_tool/
 | Ctrl+Shift+L | Copy All to Left |
 | Ctrl+Shift+R | Copy All to Right |
 | Ctrl+I | Toggle Inline Diff |
+| Alt+C | Toggle Column Edit Mode |
 | Ctrl+M | 3-Way Merge |
 | Ctrl+F | Find |
 | Ctrl+Shift+H | Replace |
