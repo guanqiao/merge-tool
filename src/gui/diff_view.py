@@ -16,7 +16,7 @@ from PySide6.QtGui import (
     QTextCursor, QTextCharFormat, QColor, QFont,
     QSyntaxHighlighter, QTextBlockUserData, QPainter
 )
-from src.diff_engine import DiffEngine, DiffResult, DiffType, InlineDiffResult, IgnoreOptions
+from src.diff_engine import DiffEngine, DiffResult, DiffType, InlineDiffResult, IgnoreOptions, LineAligner
 from src.utils.file_ops import UndoRedoManager
 from src.gui.syntax_highlighter import SyntaxHighlighter, detect_language_from_filename
 from src.gui.search_bar import SearchBar, SearchHelper
@@ -603,6 +603,26 @@ class DiffView(QWidget):
         self._ignore_options.ignore_comments = ignore
         self._diff_engine.set_ignore_options(self._ignore_options)
         self._update_diff()
+
+    def align_lines(self):
+        """Align lines to improve diff accuracy."""
+        if not self._diff_result:
+            return
+
+        left_lines = self._left_content.split('\n')
+        right_lines = self._right_content.split('\n')
+
+        aligned_result = LineAligner.align_lines(left_lines, right_lines, self._diff_result)
+        self._diff_result = aligned_result
+
+        self.left_highlighter.set_diff_result(self._diff_result)
+        self.right_highlighter.set_diff_result(self._diff_result)
+
+        self.connection_lines.set_diff_result(self._diff_result)
+        self._update_connection_lines()
+
+        if self._inline_mode:
+            self._update_inline_diff()
 
     def get_ignore_options(self) -> IgnoreOptions:
         """Get current ignore options."""

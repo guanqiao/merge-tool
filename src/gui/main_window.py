@@ -19,6 +19,8 @@ from PySide6.QtGui import QAction
 from src.gui.diff_view import DiffView
 from src.gui.file_tree import FileTreeView
 from src.gui.three_way_merge import ThreeWayMergeView
+from src.gui.hex_view import HexView
+from src.gui.image_diff_view import ImageDiffView
 from src.gui.theme_manager import get_theme_manager
 from src.utils.config import load_config, save_config, AppConfig, add_recent_file, add_recent_folder
 
@@ -138,6 +140,14 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
+        open_hex_view = file_menu.addAction("Open Hex View...")
+        open_hex_view.setShortcut("Ctrl+H")
+
+        open_image_diff = file_menu.addAction("Open Image Diff...")
+        open_image_diff.setShortcut("Ctrl+G")
+
+        file_menu.addSeparator()
+
         exit_action = file_menu.addAction("E&xit")
         exit_action.setShortcut("Ctrl+Q")
 
@@ -228,6 +238,11 @@ class MainWindow(QMainWindow):
 
         view_menu.addSeparator()
 
+        self.action_align_lines = view_menu.addAction("&Align Lines")
+        self.action_align_lines.setShortcut("Ctrl+A")
+
+        view_menu.addSeparator()
+
         theme_menu = view_menu.addMenu("&Theme")
 
         self.action_light_theme = theme_menu.addAction("&Light")
@@ -279,6 +294,8 @@ class MainWindow(QMainWindow):
             "toggle_folders": toggle_folders,
             "about": about_action,
             "open_three_way": open_three_way,
+            "open_hex_view": open_hex_view,
+            "open_image_diff": open_image_diff,
             "inline_diff": self.action_inline_diff,
             "connecting_lines": self.action_connecting_lines,
             "syntax_highlighting": self.action_syntax_highlighting,
@@ -287,7 +304,8 @@ class MainWindow(QMainWindow):
             "ignore_whitespace": self.action_ignore_whitespace,
             "ignore_case": self.action_ignore_case,
             "ignore_blank_lines": self.action_ignore_blank_lines,
-            "ignore_comments": self.action_ignore_comments
+            "ignore_comments": self.action_ignore_comments,
+            "align_lines": self.action_align_lines
         }
 
     def _setup_toolbar(self):
@@ -335,6 +353,8 @@ class MainWindow(QMainWindow):
         self._actions["toggle_folders"].triggered.connect(self._toggle_folder_view)
         self._actions["about"].triggered.connect(self._show_about)
         self._actions["open_three_way"].triggered.connect(self._open_three_way_merge)
+        self._actions["open_hex_view"].triggered.connect(self._open_hex_view)
+        self._actions["open_image_diff"].triggered.connect(self._open_image_diff)
         self._actions["inline_diff"].triggered.connect(self._toggle_inline_diff)
         self._actions["connecting_lines"].triggered.connect(self._toggle_connecting_lines)
         self._actions["syntax_highlighting"].triggered.connect(self._toggle_syntax_highlighting)
@@ -344,6 +364,7 @@ class MainWindow(QMainWindow):
         self._actions["ignore_case"].triggered.connect(self._toggle_ignore_case)
         self._actions["ignore_blank_lines"].triggered.connect(self._toggle_ignore_blank_lines)
         self._actions["ignore_comments"].triggered.connect(self._toggle_ignore_comments)
+        self._actions["align_lines"].triggered.connect(self._align_lines)
 
         self.tab_widget.tabCloseRequested.connect(self._close_tab)
 
@@ -500,6 +521,20 @@ class MainWindow(QMainWindow):
 
         self.status_bar.showMessage(f"3-Way Merge: {left_path} vs {right_path}")
 
+    def _open_hex_view(self):
+        """Open hex view tab."""
+        hex_view = HexView()
+        tab_index = self.tab_widget.addTab(hex_view, "Hex View")
+        self.tab_widget.setCurrentIndex(tab_index)
+        self.status_bar.showMessage("Hex View opened")
+
+    def _open_image_diff(self):
+        """Open image diff view tab."""
+        image_diff_view = ImageDiffView()
+        tab_index = self.tab_widget.addTab(image_diff_view, "Image Diff")
+        self.tab_widget.setCurrentIndex(tab_index)
+        self.status_bar.showMessage("Image Diff View opened")
+
     def _on_merge_complete(self, file_path: str):
         """Handle merge completion."""
         QMessageBox.information(
@@ -542,6 +577,11 @@ class MainWindow(QMainWindow):
     def _toggle_ignore_comments(self, checked):
         """Toggle ignore comments option."""
         self.diff_view.set_ignore_comments(checked)
+
+    def _align_lines(self):
+        """Align lines to improve diff accuracy."""
+        self.diff_view.align_lines()
+        self.status_bar.showMessage("Lines aligned")
 
     def _close_tab(self, index):
         """Close a tab."""

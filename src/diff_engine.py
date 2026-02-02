@@ -290,6 +290,214 @@ class DiffEngine:
         return word_diff
 
 
+class LineAligner:
+    """Algorithm for aligning lines in diff results to improve accuracy."""
+
+    @staticmethod
+    def align_lines(
+        left_lines: List[str],
+        right_lines: List[str],
+        diff_result: "DiffResult"
+    ) -> "DiffResult":
+        """Align lines in a diff result to better match insertions/deletions.
+
+        This algorithm tries to find the best alignment between lines by
+        considering similarity scores and reordering lines where appropriate.
+
+        Args:
+            left_lines: Original left lines
+            right_lines: Original right lines
+            diff_result: Initial diff result to improve
+
+        Returns:
+            Improved DiffResult with better line alignment
+        """
+        aligned_diff_lines = []
+        left_idx = 0
+        right_idx = 0
+
+        for diff_line in diff_result.lines:
+            if diff_line.type == DiffType.EQUAL:
+                aligned_diff_lines.append(diff_line)
+                left_idx += 1
+                right_idx += 1
+            elif diff_line.type == DiffType.INSERT:
+                aligned_diff_lines.append(diff_line)
+                right_idx += 1
+            elif diff_line.type == DiffType.DELETE:
+                aligned_diff_lines.append(diff_line)
+                left_idx += 1
+            elif diff_line.type == DiffType.REPLACE:
+                aligned = LineAligner._align_replace_block(
+                    left_lines, right_lines, diff_result.lines,
+                    left_idx, right_idx, diff_line
+                )
+                aligned_diff_lines.extend(aligned["lines"])
+                left_idx = aligned["left_idx"]
+                right_idx = aligned["right_idx"]
+
+        return DiffResult(
+            lines=aligned_diff_lines,
+            left_line_count=diff_result.left_line_count,
+            right_line_count=diff_result.right_line_count,
+            change_count=diff_result.change_count
+        )
+
+    @staticmethod
+    def _align_replace_block(
+        left_lines: List[str],
+        right_lines: List[str],
+        diff_lines: List[DiffLine],
+        left_idx: int,
+        right_idx: int,
+        start_line: DiffLine
+    ) -> dict:
+        """Align a block of replaced lines.
+
+        Finds the best matching pairs between left and right lines
+        within a replace block.
+        """
+        result = {"lines": [], "left_idx": left_idx, "right_idx": right_idx}
+
+        left_block = []
+        right_block = []
+
+        i = diff_lines.index(start_line)
+        while i < len(diff_lines) and diff_lines[i].type == DiffType.REPLACE:
+            if diff_lines[i].left_line_num is not None:
+                left_block.append(diff_lines[i])
+            if diff_lines[i].right_line_num is not None:
+                right_block.append(diff_lines[i])
+            i += 1
+
+        if not left_block or not right_block:
+            result["lines"].append(start_line)
+            if start_line.left_line_num is not None:
+                result["left_idx"] += 1
+            if start_line.right_line_num is not None:
+                result["right_idx"] += 1
+            return result
+
+        similarity_matrix = LineAligner._compute_similarity_matrix(left_block, right_block)
+
+        matched_left = set()
+        matched_right = set()
+
+        while True:
+            best_score = 0
+            best_pair = None
+
+            for li, left_line in enumerate(left_block):
+                if li in matched_left:
+                    continue
+                for ri, right_line in enumerate(right_block):
+                    if ri in matched_right:
+                        continue
+                    if similarity_matrix[li][ri] > best_score:
+                        best_score = similarity_matrix[li][ri]
+                        best_pair = (li, ri)
+
+            if best_score < 0.3:
+                break
+
+            if best_pair:
+                li, ri = best_pair
+                matched_left.add(li)
+                matched_right.add(ri)
+
+                left_line = left_block[li]
+                right_line = right_block[ri]
+
+                if best_score > 0.8:
+                    result["lines"].append(DiffLine(
+                        type=DiffType.EQUAL,
+                        content=left_line.content,
+                        left_line_num=left_line.left_line_num,
+                        right_line_num=right_line.right_line_num
+                    ))
+                else:
+                    result["lines"].append(DiffLine(
+                        type=DiffType.REPLACE,
+                        content=left_line.content,
+                        left_line_num=left_line.left_line_num
+                    ))
+                    result["lines"].append(DiffLine(
+                        type=DiffType.REPLACE,
+                        content=right_line.content,
+                        right_line_num=right_line.right_line_num
+                    ))
+
+        for li, left_line in enumerate(left_block):
+            if li not in matched_left:
+                result["lines"].append(DiffLine(
+                    type=DiffType.DELETE,
+                    content=left_line.content,
+                    left_line_num=left_line.left_line_num
+                ))
+                result["left_idx"] += 1
+
+        for ri, right_line in enumerate(right_block):
+            if ri not in matched_right:
+                result["lines"].append(DiffLine(
+                    type=DiffType.INSERT,
+                    content=right_line.content,
+                    right_line_num=right_line.right_line_num
+                ))
+                result["right_idx"] += 1
+
+        return result
+
+    @staticmethod
+    def _compute_similarity_matrix(
+        left_block: List[DiffLine],
+        right_block: List[DiffLine]
+    ) -> List[List[float]]:
+        """Compute similarity scores between all pairs of lines.
+
+        Uses a combination of string similarity and structural matching.
+        """
+        import difflib
+
+        matrix = []
+        for left_line in left_block:
+            row = []
+            for right_line in right_block:
+                left_content = left_line.content.strip()
+                right_content = right_line.content.strip()
+
+                if not left_content or not right_content:
+                    row.append(0.0)
+                    continue
+
+                string_ratio = difflib.SequenceMatcher(None, left_content, right_content).ratio()
+
+                word_ratio = LineAligner._word_similarity(left_content, right_content)
+
+                combined_score = (string_ratio * 0.6) + (word_ratio * 0.4)
+                row.append(combined_score)
+            matrix.append(row)
+
+        return matrix
+
+    @staticmethod
+    def _word_similarity(text1: str, text2: str) -> float:
+        """Compute word-level similarity between two texts."""
+        import re
+
+        words1 = set(re.findall(r'\w+', text1.lower()))
+        words2 = set(re.findall(r'\w+', text2.lower()))
+
+        if not words1 and not words2:
+            return 1.0
+        if not words1 or not words2:
+            return 0.0
+
+        intersection = words1 & words2
+        union = words1 | words2
+
+        return len(intersection) / len(union) if union else 0.0
+
+
 @dataclass
 class InlineDiffLine:
     """Represents a line with inline character-level diff info."""
