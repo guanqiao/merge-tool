@@ -14,10 +14,12 @@ from PySide6.QtWidgets import (
     QStatusBar, QFileDialog, QMessageBox, QTabWidget,
     QWidgetAction, QLineEdit, QComboBox
 )
-from PySide6.QtCore import Qt, QSize, Signal
+from PySide6.QtCore import Qt, QSize, Signal, QPoint
+from PySide6.QtGui import QAction
 from src.gui.diff_view import DiffView
 from src.gui.file_tree import FileTreeView
 from src.gui.three_way_merge import ThreeWayMergeView
+from src.gui.theme_manager import get_theme_manager
 from src.utils.config import load_config, save_config, AppConfig, add_recent_file, add_recent_folder
 
 
@@ -29,6 +31,7 @@ class MainWindow(QMainWindow):
         logger.info("Initializing MainWindow...")
 
         self.config = load_config()
+        self._theme_manager = get_theme_manager()
         self._three_way_merge_view = None
         self._recent_file_actions = []
         self._recent_folder_actions = []
@@ -77,6 +80,9 @@ class MainWindow(QMainWindow):
         self.tab_widget = QTabWidget()
         self.tab_widget.setTabsClosable(True)
         self.tab_widget.setDocumentMode(True)
+        self.tab_widget.setMovable(True)
+        self.tab_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tab_widget.customContextMenuRequested.connect(self._show_tab_context_menu)
 
         self.diff_view = DiffView()
         self.tab_widget.addTab(self.diff_view, "Diff View")
@@ -106,6 +112,19 @@ class MainWindow(QMainWindow):
 
         save_merged = file_menu.addAction("Save &Merged...")
         save_merged.setShortcut("Ctrl+S")
+
+        file_menu.addSeparator()
+
+        export_menu = file_menu.addMenu("&Export Report")
+        
+        export_html = export_menu.addAction("Export &HTML Report...")
+        export_html.setShortcut("Ctrl+E")
+        
+        export_text = export_menu.addAction("Export &Text Report...")
+        
+        export_unified = export_menu.addAction("Export &Unified Diff...")
+        
+        export_json = export_menu.addAction("Export &JSON Report...")
 
         file_menu.addSeparator()
 
@@ -140,11 +159,27 @@ class MainWindow(QMainWindow):
 
         edit_menu.addSeparator()
 
+        copy_all_left = edit_menu.addAction("Copy All to Left")
+        copy_all_left.setShortcut("Ctrl+Shift+L")
+
+        copy_all_right = edit_menu.addAction("Copy All to Right")
+        copy_all_right.setShortcut("Ctrl+Shift+R")
+
+        edit_menu.addSeparator()
+
         next_diff = edit_menu.addAction("Next Difference")
         next_diff.setShortcut("F8")
 
         prev_diff = edit_menu.addAction("Previous Difference")
         prev_diff.setShortcut("F7")
+
+        edit_menu.addSeparator()
+
+        self.action_find = edit_menu.addAction("&Find...")
+        self.action_find.setShortcut("Ctrl+F")
+
+        self.action_replace = edit_menu.addAction("&Replace...")
+        self.action_replace.setShortcut("Ctrl+Shift+H")
 
         view_menu = menubar.addMenu("&View")
 
@@ -158,6 +193,67 @@ class MainWindow(QMainWindow):
         self.action_inline_diff.setCheckable(True)
         self.action_inline_diff.setShortcut("Ctrl+I")
 
+        view_menu.addSeparator()
+
+        self.action_connecting_lines = view_menu.addAction("Show &Connecting Lines")
+        self.action_connecting_lines.setCheckable(True)
+        self.action_connecting_lines.setShortcut("Ctrl+Shift+L")
+
+        view_menu.addSeparator()
+
+        self.action_syntax_highlighting = view_menu.addAction("Syntax &Highlighting")
+        self.action_syntax_highlighting.setCheckable(True)
+        self.action_syntax_highlighting.setChecked(True)
+        self.action_syntax_highlighting.setShortcut("Ctrl+Shift+S")
+
+        view_menu.addSeparator()
+
+        ignore_menu = view_menu.addMenu("&Ignore")
+        
+        self.action_ignore_whitespace = ignore_menu.addAction("Ignore &Whitespace")
+        self.action_ignore_whitespace.setCheckable(True)
+        self.action_ignore_whitespace.setShortcut("Ctrl+W")
+        
+        self.action_ignore_case = ignore_menu.addAction("Ignore &Case")
+        self.action_ignore_case.setCheckable(True)
+        self.action_ignore_case.setShortcut("Ctrl+Shift+C")
+        
+        self.action_ignore_blank_lines = ignore_menu.addAction("Ignore &Blank Lines")
+        self.action_ignore_blank_lines.setCheckable(True)
+        self.action_ignore_blank_lines.setShortcut("Ctrl+Shift+B")
+        
+        self.action_ignore_comments = ignore_menu.addAction("Ignore &Comments")
+        self.action_ignore_comments.setCheckable(True)
+        self.action_ignore_comments.setShortcut("Ctrl+Shift+I")
+
+        view_menu.addSeparator()
+
+        theme_menu = view_menu.addMenu("&Theme")
+
+        self.action_light_theme = theme_menu.addAction("&Light")
+        self.action_light_theme.setCheckable(True)
+        self.action_light_theme.triggered.connect(lambda: self._set_theme("light"))
+
+        self.action_dark_theme = theme_menu.addAction("&Dark")
+        self.action_dark_theme.setCheckable(True)
+        self.action_dark_theme.triggered.connect(lambda: self._set_theme("dark"))
+
+        theme_menu.addSeparator()
+
+        self.action_monokai_theme = theme_menu.addAction("&Monokai")
+        self.action_monokai_theme.setCheckable(True)
+        self.action_monokai_theme.triggered.connect(lambda: self._set_theme("monokai"))
+
+        self.action_dracula_theme = theme_menu.addAction("&Dracula")
+        self.action_dracula_theme.setCheckable(True)
+        self.action_dracula_theme.triggered.connect(lambda: self._set_theme("dracula"))
+
+        self.action_nord_theme = theme_menu.addAction("&Nord")
+        self.action_nord_theme.setCheckable(True)
+        self.action_nord_theme.triggered.connect(lambda: self._set_theme("nord"))
+
+        self._update_theme_menu()
+
         help_menu = menubar.addMenu("&Help")
 
         about_action = help_menu.addAction("&About")
@@ -167,17 +263,31 @@ class MainWindow(QMainWindow):
             "open_right": open_right,
             "compare_folders": compare_folders,
             "save_merged": save_merged,
+            "export_html": export_html,
+            "export_text": export_text,
+            "export_unified": export_unified,
+            "export_json": export_json,
             "exit": exit_action,
             "undo": undo_action,
             "redo": redo_action,
             "copy_left": copy_left,
             "copy_right": copy_right,
+            "copy_all_left": copy_all_left,
+            "copy_all_right": copy_all_right,
             "next_diff": next_diff,
             "prev_diff": prev_diff,
             "toggle_folders": toggle_folders,
             "about": about_action,
             "open_three_way": open_three_way,
-            "inline_diff": self.action_inline_diff
+            "inline_diff": self.action_inline_diff,
+            "connecting_lines": self.action_connecting_lines,
+            "syntax_highlighting": self.action_syntax_highlighting,
+            "find": self.action_find,
+            "replace": self.action_replace,
+            "ignore_whitespace": self.action_ignore_whitespace,
+            "ignore_case": self.action_ignore_case,
+            "ignore_blank_lines": self.action_ignore_blank_lines,
+            "ignore_comments": self.action_ignore_comments
         }
 
     def _setup_toolbar(self):
@@ -199,6 +309,9 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self._actions["prev_diff"])
         toolbar.addSeparator()
         toolbar.addAction(self._actions["inline_diff"])
+        toolbar.addSeparator()
+        toolbar.addAction(self._actions["ignore_whitespace"])
+        toolbar.addAction(self._actions["ignore_case"])
 
     def _setup_connections(self):
         """Set up signal/slot connections."""
@@ -206,17 +319,31 @@ class MainWindow(QMainWindow):
         self._actions["open_right"].triggered.connect(self._open_right_file)
         self._actions["compare_folders"].triggered.connect(self._compare_folders)
         self._actions["save_merged"].triggered.connect(self._save_merged)
+        self._actions["export_html"].triggered.connect(lambda: self._export_report("html"))
+        self._actions["export_text"].triggered.connect(lambda: self._export_report("text"))
+        self._actions["export_unified"].triggered.connect(lambda: self._export_report("unified"))
+        self._actions["export_json"].triggered.connect(lambda: self._export_report("json"))
         self._actions["exit"].triggered.connect(self.close)
         self._actions["undo"].triggered.connect(self._undo)
         self._actions["redo"].triggered.connect(self._redo)
         self._actions["copy_left"].triggered.connect(self._copy_to_left)
         self._actions["copy_right"].triggered.connect(self._copy_to_right)
+        self._actions["copy_all_left"].triggered.connect(self._copy_all_to_left)
+        self._actions["copy_all_right"].triggered.connect(self._copy_all_to_right)
         self._actions["next_diff"].triggered.connect(self._next_difference)
         self._actions["prev_diff"].triggered.connect(self._prev_difference)
         self._actions["toggle_folders"].triggered.connect(self._toggle_folder_view)
         self._actions["about"].triggered.connect(self._show_about)
         self._actions["open_three_way"].triggered.connect(self._open_three_way_merge)
         self._actions["inline_diff"].triggered.connect(self._toggle_inline_diff)
+        self._actions["connecting_lines"].triggered.connect(self._toggle_connecting_lines)
+        self._actions["syntax_highlighting"].triggered.connect(self._toggle_syntax_highlighting)
+        self._actions["find"].triggered.connect(self._show_find)
+        self._actions["replace"].triggered.connect(self._show_replace)
+        self._actions["ignore_whitespace"].triggered.connect(self._toggle_ignore_whitespace)
+        self._actions["ignore_case"].triggered.connect(self._toggle_ignore_case)
+        self._actions["ignore_blank_lines"].triggered.connect(self._toggle_ignore_blank_lines)
+        self._actions["ignore_comments"].triggered.connect(self._toggle_ignore_comments)
 
         self.tab_widget.tabCloseRequested.connect(self._close_tab)
 
@@ -250,6 +377,10 @@ class MainWindow(QMainWindow):
         """Save the merged result."""
         self.diff_view.save_merged()
 
+    def _export_report(self, format: str):
+        """Export diff report in specified format."""
+        self.diff_view.export_report(format)
+
     def _undo(self):
         """Undo the last action."""
         if self.diff_view.undo():
@@ -276,6 +407,14 @@ class MainWindow(QMainWindow):
     def _copy_to_right(self):
         """Copy selected changes to right pane."""
         self.diff_view.copy_to_right()
+
+    def _copy_all_to_left(self):
+        """Copy all changes to left pane."""
+        self.diff_view.copy_all_to_left()
+
+    def _copy_all_to_right(self):
+        """Copy all changes to right pane."""
+        self.diff_view.copy_all_to_right()
 
     def _next_difference(self):
         """Navigate to next difference."""
@@ -372,12 +511,117 @@ class MainWindow(QMainWindow):
         """Toggle inline character-level diff mode."""
         self.diff_view.set_inline_mode(checked)
 
+    def _toggle_connecting_lines(self, checked):
+        """Toggle connecting lines."""
+        self.diff_view.set_connecting_lines_enabled(checked)
+
+    def _toggle_syntax_highlighting(self, checked):
+        """Toggle syntax highlighting."""
+        self.diff_view.set_syntax_highlighting_enabled(checked)
+
+    def _show_find(self):
+        """Show find dialog."""
+        self.diff_view.show_search_bar()
+
+    def _show_replace(self):
+        """Show replace dialog."""
+        self.diff_view.show_search_bar()
+
+    def _toggle_ignore_whitespace(self, checked):
+        """Toggle ignore whitespace option."""
+        self.diff_view.set_ignore_whitespace(checked)
+
+    def _toggle_ignore_case(self, checked):
+        """Toggle ignore case option."""
+        self.diff_view.set_ignore_case(checked)
+
+    def _toggle_ignore_blank_lines(self, checked):
+        """Toggle ignore blank lines option."""
+        self.diff_view.set_ignore_blank_lines(checked)
+
+    def _toggle_ignore_comments(self, checked):
+        """Toggle ignore comments option."""
+        self.diff_view.set_ignore_comments(checked)
+
     def _close_tab(self, index):
         """Close a tab."""
         widget = self.tab_widget.widget(index)
         if widget == self._three_way_merge_view:
             self._three_way_merge_view = None
         self.tab_widget.removeTab(index)
+
+    def _show_tab_context_menu(self, position: QPoint):
+        """Show context menu for tabs."""
+        tab_index = self.tab_widget.tabBar().tabAt(position)
+        if tab_index == -1:
+            return
+
+        widget = self.tab_widget.widget(tab_index)
+        menu = QMenu(self)
+
+        new_tab_action = menu.addAction("New Tab")
+        new_tab_action.triggered.connect(self._new_diff_tab)
+
+        if widget != self.diff_view:
+            close_action = menu.addAction("Close Tab")
+            close_action.triggered.connect(lambda: self._close_tab(tab_index))
+
+        close_other_action = menu.addAction("Close Other Tabs")
+        close_other_action.triggered.connect(lambda: self._close_other_tabs(tab_index))
+
+        close_all_action = menu.addAction("Close All Tabs")
+        close_all_action.triggered.connect(self._close_all_tabs)
+
+        menu.addSeparator()
+
+        if isinstance(widget, DiffView):
+            duplicate_action = menu.addAction("Duplicate Tab")
+            duplicate_action.triggered.connect(lambda: self._duplicate_tab(tab_index))
+
+        menu.exec(self.tab_widget.tabBar().mapToGlobal(position))
+
+    def _new_diff_tab(self):
+        """Create a new diff view tab."""
+        new_diff_view = DiffView()
+        self.tab_widget.addTab(new_diff_view, "Diff View")
+        self.tab_widget.setCurrentIndex(self.tab_widget.count() - 1)
+
+    def _duplicate_tab(self, index: int):
+        """Duplicate a diff view tab."""
+        widget = self.tab_widget.widget(index)
+        if isinstance(widget, DiffView):
+            new_diff_view = DiffView()
+            new_diff_view.set_left_file(widget._left_file_path)
+            new_diff_view.set_right_file(widget._right_file_path)
+            tab_name = self.tab_widget.tabText(index)
+            self.tab_widget.addTab(new_diff_view, f"{tab_name} (Copy)")
+            self.tab_widget.setCurrentIndex(self.tab_widget.count() - 1)
+
+    def _close_other_tabs(self, keep_index: int):
+        """Close all tabs except the specified one."""
+        for i in range(self.tab_widget.count() - 1, -1, -1):
+            if i != keep_index:
+                self._close_tab(i)
+
+    def _close_all_tabs(self):
+        """Close all tabs."""
+        for i in range(self.tab_widget.count() - 1, -1, -1):
+            self._close_tab(i)
+
+    def _set_theme(self, theme_name: str):
+        """Set application theme."""
+        self._theme_manager.set_theme(theme_name)
+        self._update_theme_menu()
+        self.status_bar.showMessage(f"Theme changed to {theme_name}")
+
+    def _update_theme_menu(self):
+        """Update theme menu check states."""
+        current_theme = self._theme_manager.get_current_theme()
+        self.action_light_theme.setChecked(current_theme.name == "Light")
+        self.action_dark_theme.setChecked(current_theme.name == "Dark")
+        self.action_monokai_theme.setChecked(current_theme.name == "Monokai")
+        self.action_dracula_theme.setChecked(current_theme.name == "Dracula")
+        self.action_nord_theme.setChecked(current_theme.name == "Nord")
 
     def _update_recent_files_menu(self):
         """Update the recent files menu."""

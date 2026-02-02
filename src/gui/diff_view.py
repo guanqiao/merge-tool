@@ -8,7 +8,7 @@ import logging
 logger = logging.getLogger("MergeDiffTool.DiffView")
 
 from PySide6.QtWidgets import (
-    QWidget, QHBoxLayout, QSplitter, QPlainTextEdit,
+    QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QPlainTextEdit,
     QScrollBar, QFrame, QTextEdit
 )
 from PySide6.QtCore import Qt, Signal, QEvent, QSize
@@ -16,8 +16,12 @@ from PySide6.QtGui import (
     QTextCursor, QTextCharFormat, QColor, QFont,
     QSyntaxHighlighter, QTextBlockUserData, QPainter
 )
-from src.diff_engine import DiffEngine, DiffResult, DiffType, InlineDiffResult
+from src.diff_engine import DiffEngine, DiffResult, DiffType, InlineDiffResult, IgnoreOptions
 from src.utils.file_ops import UndoRedoManager
+from src.gui.syntax_highlighter import SyntaxHighlighter, detect_language_from_filename
+from src.gui.search_bar import SearchBar, SearchHelper
+from src.gui.connecting_lines import DiffConnectionLines
+from src.utils.report_generator import ReportGenerator
 from typing import List, Tuple
 
 
@@ -230,14 +234,27 @@ class DiffTextEdit(QPlainTextEdit):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._diff_view = None
         self.line_number_area = LineNumberArea(self)
         self.blockCountChanged.connect(self.update_line_number_area_width)
         self.updateRequest.connect(self.update_line_number_area)
         self.cursorPositionChanged.connect(self.highlight_current_line)
+        self.syntax_highlighter = None
 
         self.update_line_number_area_width(0)
         self.setCenterOnScroll(True)
+
+    def set_syntax_highlighting(self, language: str):
+        """Enable syntax highlighting for the specified language."""
+        if self.syntax_highlighter:
+            self.syntax_highlighter.deleteLater()
+        
+        self.syntax_highlighter = SyntaxHighlighter(self.document(), language)
+
+    def disable_syntax_highlighting(self):
+        """Disable syntax highlighting."""
+        if self.syntax_highlighter:
+            self.syntax_highlighter.deleteLater()
+            self.syntax_highlighter = None
 
     def set_diff_view(self, diff_view):
         """Set the parent DiffView reference for drag/drop handling."""
@@ -349,6 +366,9 @@ class DiffView(QWidget):
         self._inline_mode = False
         self._undo_manager = UndoRedoManager()
         self._is_undo_redo_operation = False
+        self._ignore_options = IgnoreOptions()
+        self._diff_engine = DiffEngine(self._ignore_options)
+        self._connecting_lines_enabled = False
 
         logger.debug("Calling _setup_ui...")
         self._setup_ui()
@@ -360,8 +380,17 @@ class DiffView(QWidget):
 
     def _setup_ui(self):
         """Set up the UI components."""
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+
+        self.search_bar = SearchBar()
+        self.search_bar.setVisible(False)
+        layout.addWidget(self.search_bar)
+
+        main_container = QWidget()
+        main_layout = QHBoxLayout(main_container)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
         splitter = QSplitter(Qt.Horizontal)
 
@@ -385,7 +414,12 @@ class DiffView(QWidget):
         right_layout.addWidget(self.right_editor)
         splitter.addWidget(right_frame)
 
-        layout.addWidget(splitter)
+        main_layout.addWidget(splitter)
+        layout.addWidget(main_container)
+
+        self.connection_lines = DiffConnectionLines(main_container)
+        self.connection_lines.setGeometry(main_container.rect())
+        self.connection_lines.lower()
 
         self.left_editor.set_diff_view(self)
         self.right_editor.set_diff_view(self)
@@ -400,6 +434,11 @@ class DiffView(QWidget):
         )
         self.left_editor.textChanged.connect(self._on_left_content_changed)
         self.right_editor.textChanged.connect(self._on_right_content_changed)
+        
+        self.search_bar.search_requested.connect(self._on_search)
+        self.search_bar.replace_requested.connect(self._on_replace)
+        self.search_bar.replace_all_requested.connect(self._on_replace_all)
+        self.search_bar.close_requested.connect(self._hide_search_bar)
 
     def _on_left_content_changed(self):
         """Handle left content changes."""
@@ -455,6 +494,8 @@ class DiffView(QWidget):
             with open(file_path, "r", encoding="utf-8", errors="replace") as f:
                 self._left_content = f.read()
             self.left_editor.setPlainText(self._left_content)
+            language = detect_language_from_filename(file_path)
+            self.left_editor.set_syntax_highlighting(language)
             self._update_diff()
         except Exception as e:
             self.left_editor.setPlainText(f"Error reading file: {e}")
@@ -466,6 +507,8 @@ class DiffView(QWidget):
             with open(file_path, "r", encoding="utf-8", errors="replace") as f:
                 self._right_content = f.read()
             self.right_editor.setPlainText(self._right_content)
+            language = detect_language_from_filename(file_path)
+            self.right_editor.set_syntax_highlighting(language)
             self._update_diff()
         except Exception as e:
             self.right_editor.setPlainText(f"Error reading file: {e}")
@@ -499,15 +542,150 @@ class DiffView(QWidget):
         if not self._left_content or not self._right_content:
             return
 
-        self._diff_result = DiffEngine.compare_text(
+        self._diff_result = self._diff_engine.compare_text(
             self._left_content, self._right_content
         )
 
         self.left_highlighter.set_diff_result(self._diff_result)
         self.right_highlighter.set_diff_result(self._diff_result)
 
+        self.connection_lines.set_diff_result(self._diff_result)
+        self._update_connection_lines()
+
         if self._inline_mode:
             self._update_inline_diff()
+
+    def _update_connection_lines(self):
+        """Update connecting lines positions."""
+        left_positions = []
+        right_positions = []
+        left_heights = []
+        right_heights = []
+
+        for i in range(self.left_editor.blockCount()):
+            block = self.left_editor.document().findBlockByNumber(i)
+            left_positions.append(self.left_editor.blockBoundingGeometry(block).y())
+            left_heights.append(self.left_editor.blockBoundingRect(block).height())
+
+        for i in range(self.right_editor.blockCount()):
+            block = self.right_editor.document().findBlockByNumber(i)
+            right_positions.append(self.right_editor.blockBoundingGeometry(block).y())
+            right_heights.append(self.right_editor.blockBoundingRect(block).height())
+
+        self.connection_lines.update_line_positions(left_positions, right_positions)
+        self.connection_lines.update_line_heights(left_heights, right_heights)
+
+    def set_connecting_lines_enabled(self, enabled: bool):
+        """Enable or disable connecting lines."""
+        self._connecting_lines_enabled = enabled
+        self.connection_lines.set_visible(enabled)
+
+    def set_ignore_whitespace(self, ignore: bool):
+        """Set whether to ignore whitespace in comparisons."""
+        self._ignore_options.ignore_whitespace = ignore
+        self._diff_engine.set_ignore_options(self._ignore_options)
+        self._update_diff()
+
+    def set_ignore_case(self, ignore: bool):
+        """Set whether to ignore case in comparisons."""
+        self._ignore_options.ignore_case = ignore
+        self._diff_engine.set_ignore_options(self._ignore_options)
+        self._update_diff()
+
+    def set_ignore_blank_lines(self, ignore: bool):
+        """Set whether to ignore blank lines in comparisons."""
+        self._ignore_options.ignore_blank_lines = ignore
+        self._diff_engine.set_ignore_options(self._ignore_options)
+        self._update_diff()
+
+    def set_ignore_comments(self, ignore: bool):
+        """Set whether to ignore comments in comparisons."""
+        self._ignore_options.ignore_comments = ignore
+        self._diff_engine.set_ignore_options(self._ignore_options)
+        self._update_diff()
+
+    def get_ignore_options(self) -> IgnoreOptions:
+        """Get current ignore options."""
+        return self._ignore_options
+
+    def set_syntax_highlighting_enabled(self, enabled: bool):
+        """Enable or disable syntax highlighting."""
+        if enabled:
+            if self._left_file_path:
+                language = detect_language_from_filename(self._left_file_path)
+                self.left_editor.set_syntax_highlighting(language)
+            if self._right_file_path:
+                language = detect_language_from_filename(self._right_file_path)
+                self.right_editor.set_syntax_highlighting(language)
+        else:
+            self.left_editor.disable_syntax_highlighting()
+            self.right_editor.disable_syntax_highlighting()
+
+    def show_search_bar(self):
+        """Show the search bar."""
+        self.search_bar.setVisible(True)
+        self.search_bar.focus_find()
+
+    def _hide_search_bar(self):
+        """Hide the search bar."""
+        self.search_bar.setVisible(False)
+
+    def _on_search(self, search_text: str, case_sensitive: bool, 
+                   whole_word: bool, use_regex: bool):
+        """Handle search request."""
+        pattern = SearchHelper.build_pattern(search_text, case_sensitive, 
+                                          whole_word, use_regex)
+        
+        for editor in [self.left_editor, self.right_editor]:
+            cursor = editor.textCursor()
+            start_pos = cursor.position()
+            text = editor.toPlainText()
+            
+            pos = SearchHelper.find_in_text(text, pattern, start_pos, forward=True)
+            if pos == -1:
+                pos = SearchHelper.find_in_text(text, pattern, 0, forward=True)
+            
+            if pos != -1:
+                new_cursor = QTextCursor(editor.document())
+                new_cursor.setPosition(pos)
+                new_cursor.setPosition(pos + len(search_text), 
+                                       QTextCursor.KeepAnchor)
+                editor.setTextCursor(new_cursor)
+                editor.setFocus()
+
+    def _on_replace(self, find_text: str, replace_text: str):
+        """Handle replace request."""
+        pattern = SearchHelper.build_pattern(
+            find_text, 
+            self.search_bar.is_case_sensitive(),
+            self.search_bar.is_whole_word(),
+            self.search_bar.is_regex()
+        )
+        
+        for editor in [self.left_editor, self.right_editor]:
+            cursor = editor.textCursor()
+            if cursor.hasSelection():
+                selected_text = cursor.selectedText()
+                if pattern.match(selected_text):
+                    cursor.insertText(replace_text)
+                    self._on_search(find_text, 
+                                    self.search_bar.is_case_sensitive(),
+                                    self.search_bar.is_whole_word(),
+                                    self.search_bar.is_regex())
+
+    def _on_replace_all(self, find_text: str, replace_text: str):
+        """Handle replace all request."""
+        pattern = SearchHelper.build_pattern(
+            find_text, 
+            self.search_bar.is_case_sensitive(),
+            self.search_bar.is_whole_word(),
+            self.search_bar.is_regex()
+        )
+        
+        for editor in [self.left_editor, self.right_editor]:
+            text = editor.toPlainText()
+            new_text = SearchHelper.replace_in_text(text, pattern, replace_text)
+            editor.setPlainText(new_text)
 
     def _update_inline_diff(self):
         """Update inline character-level diff highlighting."""
@@ -604,6 +782,25 @@ class DiffView(QWidget):
                         self.left_editor.setPlainText(self._left_content)
                         break
 
+    def copy_all_to_left(self):
+        """Copy all changes from right to left."""
+        if not self._diff_result:
+            return
+
+        from PySide6.QtWidgets import QMessageBox
+
+        reply = QMessageBox.question(
+            self, "Confirm Copy All",
+            "Copy all changes from right to left? This will overwrite all differences.",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            self._create_snapshot("Copy All to Left")
+            self._left_content = self._right_content
+            self.left_editor.setPlainText(self._left_content)
+            self._update_diff()
+
     def copy_to_right(self):
         """Copy selected/next change from left to right."""
         if not self._diff_result:
@@ -634,6 +831,25 @@ class DiffView(QWidget):
                         self._right_content = '\n'.join(lines)
                         self.right_editor.setPlainText(self._right_content)
                         break
+
+    def copy_all_to_right(self):
+        """Copy all changes from left to right."""
+        if not self._diff_result:
+            return
+
+        from PySide6.QtWidgets import QMessageBox
+
+        reply = QMessageBox.question(
+            self, "Confirm Copy All",
+            "Copy all changes from left to right? This will overwrite all differences.",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            self._create_snapshot("Copy All to Right")
+            self._right_content = self._left_content
+            self.right_editor.setPlainText(self._right_content)
+            self._update_diff()
 
     def next_difference(self):
         """Navigate to the next difference."""
@@ -705,6 +921,89 @@ class DiffView(QWidget):
             except Exception as e:
                 QMessageBox.critical(
                     self, "Error", f"Failed to save file: {e}"
+                )
+
+    def export_report(self, format: str):
+        """Export diff report in specified format."""
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+        if not self._diff_result:
+            QMessageBox.warning(
+                self, "No Diff", 
+                "No diff to export. Please compare files first."
+            )
+            return
+
+        format_map = {
+            "html": ("HTML Report (*.html)", ".html"),
+            "text": ("Text Report (*.txt)", ".txt"),
+            "unified": ("Unified Diff (*.diff)", ".diff"),
+            "json": ("JSON Report (*.json)", ".json")
+        }
+
+        if format not in format_map:
+            QMessageBox.warning(
+                self, "Invalid Format",
+                f"Unknown format: {format}"
+            )
+            return
+
+        filter_text, extension = format_map[format]
+        default_name = f"diff_report{extension}"
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, f"Export {format.upper()} Report",
+            default_name,
+            f"{filter_text};;All Files (*)"
+        )
+
+        if file_path:
+            try:
+                if format == "html":
+                    report = ReportGenerator.generate_html_report(
+                        self._diff_result,
+                        self._left_file_path or "",
+                        self._right_file_path or "",
+                        self._left_content,
+                        self._right_content
+                    )
+                elif format == "text":
+                    report = ReportGenerator.generate_text_report(
+                        self._diff_result,
+                        self._left_file_path or "",
+                        self._right_file_path or ""
+                    )
+                elif format == "unified":
+                    report = ReportGenerator.generate_unified_diff_report(
+                        self._diff_result,
+                        self._left_file_path or "",
+                        self._right_file_path or "",
+                        self._left_content,
+                        self._right_content
+                    )
+                elif format == "json":
+                    report = ReportGenerator.generate_json_report(
+                        self._diff_result,
+                        self._left_file_path or "",
+                        self._right_file_path or "",
+                        self._left_content,
+                        self._right_content
+                    )
+
+                if ReportGenerator.save_report(report, file_path):
+                    QMessageBox.information(
+                        self, "Export Successful",
+                        f"Report saved to:\n{file_path}"
+                    )
+                else:
+                    QMessageBox.critical(
+                        self, "Export Failed",
+                        "Failed to save report file."
+                    )
+            except Exception as e:
+                QMessageBox.critical(
+                    self, "Export Error",
+                    f"Error exporting report: {e}"
                 )
 
     def can_undo(self) -> bool:

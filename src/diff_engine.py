@@ -88,8 +88,13 @@ class DiffResult:
     change_count: int
     
     @classmethod
-    def from_files(cls, left_lines: List[str], right_lines: List[str]) -> "DiffResult":
+    def from_files(cls, left_lines: List[str], right_lines: List[str], 
+                   ignore_options: Optional[IgnoreOptions] = None) -> "DiffResult":
         """Create a DiffResult from two lists of lines."""
+        if ignore_options:
+            left_lines = [ignore_options.preprocess_line(line) for line in left_lines]
+            right_lines = [ignore_options.preprocess_line(line) for line in right_lines]
+        
         matcher = difflib.SequenceMatcher(None, left_lines, right_lines)
         diff_lines = []
         left_count = 0
@@ -152,18 +157,28 @@ class DiffResult:
         )
     
     @classmethod
-    def from_text(cls, left_text: str, right_text: str) -> "DiffResult":
+    def from_text(cls, left_text: str, right_text: str, 
+                  ignore_options: Optional[IgnoreOptions] = None) -> "DiffResult":
         """Create a DiffResult from two text strings."""
         left_lines = left_text.splitlines(keepends=False)
         right_lines = right_text.splitlines(keepends=False)
-        return cls.from_files(left_lines, right_lines)
+        return cls.from_files(left_lines, right_lines, ignore_options)
 
 
 class DiffEngine:
     """Core diff engine using Myers algorithm via difflib."""
     
+    def __init__(self, ignore_options: Optional[IgnoreOptions] = None):
+        """Initialize the diff engine with optional ignore options."""
+        self.ignore_options = ignore_options
+    
+    def set_ignore_options(self, ignore_options: IgnoreOptions):
+        """Set the ignore options for comparison."""
+        self.ignore_options = ignore_options
+    
     @staticmethod
-    def compare_files(file1_path: str, file2_path: str) -> DiffResult:
+    def compare_files(file1_path: str, file2_path: str, 
+                     ignore_options: Optional[IgnoreOptions] = None) -> DiffResult:
         """Compare two files and return the diff result."""
         with open(file1_path, "r", encoding="utf-8", errors="replace") as f:
             left_lines = f.read().splitlines(keepends=False)
@@ -171,17 +186,17 @@ class DiffEngine:
         with open(file2_path, "r", encoding="utf-8", errors="replace") as f:
             right_lines = f.read().splitlines(keepends=False)
         
-        return DiffResult.from_files(left_lines, right_lines)
+        return DiffResult.from_files(left_lines, right_lines, ignore_options)
     
-    @staticmethod
-    def compare_text(text1: str, text2: str) -> DiffResult:
+    def compare_text(self, text1: str, text2: str) -> DiffResult:
         """Compare two text strings and return the diff result."""
-        return DiffResult.from_text(text1, text2)
+        return DiffResult.from_text(text1, text2, self.ignore_options)
     
     @staticmethod
-    def compare_lines(lines1: List[str], lines2: List[str]) -> DiffResult:
+    def compare_lines(lines1: List[str], lines2: List[str], 
+                     ignore_options: Optional[IgnoreOptions] = None) -> DiffResult:
         """Compare two lists of lines and return the diff result."""
-        return DiffResult.from_files(lines1, lines2)
+        return DiffResult.from_files(lines1, lines2, ignore_options)
     
     @staticmethod
     def get_unified_diff(
@@ -296,16 +311,22 @@ class InlineDiffResult:
     change_count: int
 
     @classmethod
-    def from_text(cls, left_text: str, right_text: str) -> "InlineDiffResult":
+    def from_text(cls, left_text: str, right_text: str, 
+                  ignore_options: Optional[IgnoreOptions] = None) -> "InlineDiffResult":
         """Create InlineDiffResult from two text strings."""
         left_lines = left_text.splitlines(keepends=False)
         right_lines = right_text.splitlines(keepends=False)
 
-        return cls.from_lines(left_lines, right_lines)
+        return cls.from_lines(left_lines, right_lines, ignore_options)
 
     @classmethod
-    def from_lines(cls, left_lines: List[str], right_lines: List[str]) -> "InlineDiffResult":
+    def from_lines(cls, left_lines: List[str], right_lines: List[str],
+                   ignore_options: Optional[IgnoreOptions] = None) -> "InlineDiffResult":
         """Create InlineDiffResult from two lists of lines."""
+        if ignore_options:
+            left_lines = [ignore_options.preprocess_line(line) for line in left_lines]
+            right_lines = [ignore_options.preprocess_line(line) for line in right_lines]
+        
         matcher = difflib.SequenceMatcher(None, left_lines, right_lines)
         diff_lines = []
         left_count = 0
