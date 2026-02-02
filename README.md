@@ -66,6 +66,10 @@ python main.py --unified file1.txt file2.txt
 - **Connecting lines**: Visual lines connecting differences between panes
 - **Copy all differences**: Bulk copy all changes to left or right pane
 - **Export reports**: Generate HTML, Text, Unified Diff, and JSON format reports
+- **Hex view**: Compare binary files in hex format with ASCII representation
+- **Image comparison**: Side-by-side image comparison with overlay mode and pixel-level diff highlighting
+- **Line alignment**: Automatic line alignment algorithm for improved diff accuracy
+- **Folder synchronization**: Bidirectional folder sync with conflict resolution
 
 ## Requirements
 
@@ -113,10 +117,18 @@ merge_tool/
 │   │   ├── main_window.py     # Main application window
 │   │   ├── diff_view.py       # Side-by-side diff view
 │   │   ├── three_way_merge.py # Three-way merge UI
-│   │   └── file_tree.py       # Directory comparison
+│   │   ├── file_tree.py       # Directory comparison
+│   │   ├── hex_view.py        # Binary file hex view
+│   │   ├── image_diff_view.py # Image comparison widget
+│   │   ├── search_bar.py      # Search and replace bar
+│   │   ├── syntax_highlighter.py # Syntax highlighting
+│   │   ├── connecting_lines.py # Visual connection lines
+│   │   └── theme_manager.py   # Theme management
 │   └── utils/
 │       ├── file_ops.py        # File operations
-│       └── config.py          # Configuration & filters
+│       ├── config.py          # Configuration & filters
+│       ├── sync_manager.py    # Folder synchronization
+│       └── report_generator.py # Report generation
 ├── tests/                     # Unit tests
 ├── docs/                      # Documentation
 ├── requirements.txt
@@ -147,6 +159,9 @@ merge_tool/
 | Ctrl+Shift+I | Ignore Comments |
 | Ctrl+Shift+S | Toggle Syntax Highlighting |
 | Ctrl+Shift+L | Toggle Connecting Lines |
+| Ctrl+A | Align Lines |
+| Ctrl+H | Open Hex View |
+| Ctrl+G | Open Image Diff |
 | Ctrl+E | Export HTML Report |
 | F7 | Previous Difference |
 | F8 | Next Difference |
@@ -179,12 +194,12 @@ This tool implements many WinMerge features including:
 | Command line | ✓ | ✓ |
 | Tabbed interface | ✓ | ✓ |
 | Patch generation | ✓ | ✓ |
-| Image comparison | ✓ | ✗ |
-| Binary/hex view | ✓ | ✗ |
+| Image comparison | ✓ | ✓ |
+| Binary/hex view | ✓ | ✓ |
 | Plugin architecture | ✓ | ✗ |
+| Line alignment | ✗ | ✓ |
+| Folder synchronization | ✗ | ✓ |
 
 Planned future enhancements:
-- Image comparison
-- Binary file hex view
 - Plugin system for custom file types
 - Shell context menu integration
