@@ -54,10 +54,18 @@ python main.py --unified file1.txt file2.txt
 ```
 
 ### Advanced Features
-- **Tabbed interface**: Multiple comparisons in separate tabs
+- **Tabbed interface**: Multiple comparisons in separate tabs with drag-and-drop reordering
+- **Tab context menu**: Right-click tabs for New, Close, Close Others, Close All, Duplicate
 - **Drag and drop**: Drag files/folders directly onto the application
 - **Encoding support**: Automatic UTF-8 encoding detection
 - **Patch generation**: Generate unified diff patches
+- **Theme support**: Multiple built-in themes (Light, Dark, Monokai, Dracula, Nord)
+- **Ignore options**: Ignore whitespace, case, blank lines, and comments
+- **Syntax highlighting**: Support for Python, JavaScript, Java, C/C++, HTML, CSS, JSON, XML, SQL, and Bash
+- **Search and replace**: Find text with case-sensitive, whole word, and regex support
+- **Connecting lines**: Visual lines connecting differences between panes
+- **Copy all differences**: Bulk copy all changes to left or right pane
+- **Export reports**: Generate HTML, Text, Unified Diff, and JSON format reports
 
 ## Requirements
 
@@ -127,8 +135,19 @@ merge_tool/
 | Ctrl+S | Save Merged |
 | Ctrl+L | Copy to Left |
 | Ctrl+R | Copy to Right |
+| Ctrl+Shift+L | Copy All to Left |
+| Ctrl+Shift+R | Copy All to Right |
 | Ctrl+I | Toggle Inline Diff |
 | Ctrl+M | 3-Way Merge |
+| Ctrl+F | Find |
+| Ctrl+Shift+H | Replace |
+| Ctrl+W | Ignore Whitespace |
+| Ctrl+Shift+C | Ignore Case |
+| Ctrl+Shift+B | Ignore Blank Lines |
+| Ctrl+Shift+I | Ignore Comments |
+| Ctrl+Shift+S | Toggle Syntax Highlighting |
+| Ctrl+Shift+L | Toggle Connecting Lines |
+| Ctrl+E | Export HTML Report |
 | F7 | Previous Difference |
 | F8 | Next Difference |
 | Ctrl+Q | Exit |
