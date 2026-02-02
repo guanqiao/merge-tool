@@ -127,7 +127,7 @@ class TestEncodingDetection:
     
     def test_read_file_with_encoding_detection_utf8(self):
         """Test encoding detection for UTF-8 files."""
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt', encoding='utf-8') as f:
             temp_path = f.name
             f.write("hello world ü ö ä")
         
@@ -309,9 +309,16 @@ class TestUndoRedoManager:
         assert not manager.can_undo()
         assert manager.can_redo()
         
-        # Redo
+        # Redo - should restore Version 1
         restored = manager.redo()
         assert restored is not None
+        assert restored.get("description") == "Version 1"
+        assert manager.get_undo_description() == "Version 1"
+        
+        # Redo again - should restore Version 2
+        restored = manager.redo()
+        assert restored is not None
+        assert restored.get("description") == "Version 2"
         assert manager.get_undo_description() == "Version 2"
     
     def test_clear(self):

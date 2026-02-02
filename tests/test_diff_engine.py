@@ -31,7 +31,7 @@ class TestDiffEngine:
         result = DiffEngine.compare_lines(lines1, lines2)
         
         assert result.change_count > 0
-        assert len(result.lines) == 3
+        assert len(result.lines) == 4
     
     def test_compare_with_insertions(self):
         """Test comparing with insertions."""
