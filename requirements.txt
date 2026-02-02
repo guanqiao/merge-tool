@@ -1,0 +1,14 @@
+# Core GUI Framework
+PySide6>=6.5.0
+
+# For syntax highlighting (optional integration with QSyntaxHighlighter)
+# Pygments>=2.15.0
+
+# Testing
+pytest>=7.0.0
+
+# Packaging (optional)
+pyinstaller>=5.0.0
+
+# Type checking (optional)
+# typeshed
